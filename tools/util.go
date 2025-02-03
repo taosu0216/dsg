@@ -40,7 +40,7 @@ func isExist(path string) (bool, string) {
 func (t *Tool) IsExistAndGetContent(url string) (bool, string, error) {
 	if exist, t := isExist(url); exist {
 		if t == File {
-			fmt.Println(url, "   here  ")
+			fmt.Printf("add [%s] to context\n", url)
 			contentBytes, err := ioutil.ReadFile(url)
 			if err != nil {
 				log.Println("read file fail ", err)

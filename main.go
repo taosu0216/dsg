@@ -36,9 +36,16 @@ func init() {
 		assPropmt := os.Getenv("PROMPT")
 		if assPropmt != "" {
 			prompt.Assistant = assPropmt
+			p.Yellow("your prompt is: ")
+			fmt.Println(assPropmt)
 		}
 		cli = deepseek.NewClient(os.Getenv("KEY")).WithBaseUrl(os.Getenv("URL"))
-		fmt.Println(os.Getenv("KEY"), " ** ", os.Getenv("URL"))
+		fmt.Println(os.Getenv("KEY"), "    ", os.Getenv("URL"))
+		fmt.Println()
+		fmt.Println()
+		fmt.Println("------------------------------------------------------------------------------------")
+		fmt.Println()
+		fmt.Println()
 	}
 
 	readme.Hi()
@@ -62,10 +69,15 @@ func main() {
 		WithProperty("newContent", deepseek.ToolParamTypeStr, "新的文件内容，例如: 你好世界").
 		WithRequired("filepath", "oldContent", "newContent")
 
+	isExistParams := deepseek.NewParameters().
+		WithProperty("filepath", deepseek.ToolParamTypeStr, "文件路径，例如：/root/gopro/1.txt").
+		WithRequired("filepath")
+
 	cliTools := []*deepseek.Tool{
 		deepseek.NewTool("addFile", "创建文件并写入内容", addFileParams),
 		deepseek.NewTool("addDict", "创建一个目录", addDictParams),
 		deepseek.NewTool("editFile", "编辑一个文件，对指定旧的内容替换成新内容，即可以修改文件，也可以删除文件对应内容，比如把旧内容替换成空", editFileParams),
+		deepseek.NewTool("isExist", "判断文件或目录是否存在", isExistParams),
 	}
 
 	dialog = append(dialog, []deepseek.Message{
@@ -147,12 +159,15 @@ func main() {
 						for _, toolCall := range msg.ToolCalls {
 							// 从字典获取工具函数
 							fn := toolCall.Function.Name
+							toolCallRes := true
 							if fn == "addFile" {
 								tool.CreateFile(toolCall.Function.Arguments)
 							} else if fn == "addDict" {
 								tool.CreateDict(toolCall.Function.Arguments)
 							} else if fn == "editFile" {
 								tool.EditFile(toolCall.Function.Arguments)
+							} else if fn == "isExist" {
+								toolCallRes = tool.IsExist(toolCall.Function.Arguments)
 							} else {
 								log.Fatalln("fn not exist", fn, err)
 							}
@@ -160,7 +175,7 @@ func main() {
 							// 添加工具响应
 							dialog = append(dialog, deepseek.Message{
 								Role:       deepseek.ChatMessageRoleTool,
-								Content:    "success",
+								Content:    fmt.Sprintf("%v", toolCallRes),
 								ToolCallID: toolCall.ID,
 								Name:       toolCall.Function.Name,
 							})
@@ -214,39 +229,6 @@ func main() {
 	}
 }
 
-func handleToolCall(toolCall *deepseek.ToolCall) {
-	fn := toolCall.Function.Name
-	args := toolCall.Function.Arguments
-
-	switch fn {
-	case "addFile":
-		tool.CreateFile(args)
-	case "addDict":
-		tool.CreateDict(args)
-	case "editFile":
-		tool.EditFile(args)
-	default:
-		log.Fatalln("Unknown function:", fn)
-	}
-
-	// 添加工具响应到对话历史
-	dialog = append(dialog, deepseek.Message{
-		Role:       deepseek.ChatMessageRoleTool,
-		Content:    "success",
-		ToolCallID: toolCall.ID,
-		Name:       fn,
-	})
-}
-
-//func print(resp deepseek.ChatCompletionResponse) {
-//	respBytes, err := json.MarshalIndent(resp, "", "  ")
-//	if err != nil {
-//		fmt.Println("Error marshaling response:", err)
-//		return
-//	}
-//	fmt.Println(string(respBytes))
-//}
-
 func addFileToCtx(urls []string) {
 	for _, url := range urls {
 		is, info, err := tool.IsExistAndGetContent(url)
@@ -284,11 +266,13 @@ func addDictToCtx(urls []string) {
 }
 
 func processDirectory(dirPath string) error {
-	// 递归处理目录中的文件
 	files, err := os.ReadDir(dirPath)
 	if err != nil {
 		return err
 	}
+
+	// 标记目录是否为空
+	isEmpty := true
 
 	for _, file := range files {
 		filePath := dirPath + "/" + file.Name()
@@ -298,12 +282,28 @@ func processDirectory(dirPath string) error {
 			if err != nil {
 				return err
 			}
+			isEmpty = false // 子目录存在，目录不为空
 		} else {
 			// 如果是文件，调用 addFileToCtx
 			addFileToCtx([]string{filePath})
+			isEmpty = false // 文件存在，目录不为空
 		}
 	}
+
+	// 如果目录为空，添加目录信息到上下文
+	if isEmpty {
+		addEmptyDirToCtx(dirPath)
+	}
+
 	return nil
+}
+
+func addEmptyDirToCtx(dirPath string) {
+	fmt.Printf("add {empty Dir} [%s] to context\n", dirPath)
+	dialog = append(dialog, deepseek.Message{
+		Role:    deepseek.ChatMessageRoleUser,
+		Content: fmt.Sprintf("url: %s \n [this is Empty Directory]\n", dirPath),
+	})
 }
 
 func your() {
